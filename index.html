@@ -1,0 +1,265 @@
+import React, { useState, useEffect } from 'react';
+import { Plus, Check, X, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+
+export default function DailyTaskTracker() {
+  const [tasks, setTasks] = useState([]);
+  const [newTask, setNewTask] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [lastProcessedDate, setLastProcessedDate] = useState('');
+  const [viewDate, setViewDate] = useState(new Date().toISOString().split('T')[0]);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const today = new Date().toISOString().split('T')[0];
+  const isViewingToday = viewDate === today;
+  
+  const getFormattedDate = (dateStr) => {
+    return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+  };
+
+  useEffect(() => {
+    loadTasks();
+  }, [viewDate]);
+
+  const loadTasks = async () => {
+    setIsLoading(true);
+    try {
+      // Load tasks for the viewing date
+      const tasksResult = await window.storage.get(`tasks-${viewDate}`);
+      const dateResult = await window.storage.get('lastProcessedDate');
+      
+      const storedDate = dateResult ? dateResult.value : '';
+
+      if (isViewingToday) {
+        const storedTasks = tasksResult ? JSON.parse(tasksResult.value) : [];
+        
+        // Check if it's a new day
+        if (storedDate !== today) {
+          await processNewDay(storedTasks);
+        } else {
+          setTasks(storedTasks);
+          setLastProcessedDate(storedDate);
+        }
+      } else {
+        // Viewing past date
+        const storedTasks = tasksResult ? JSON.parse(tasksResult.value) : [];
+        setTasks(storedTasks);
+      }
+    } catch (error) {
+      if (isViewingToday) {
+        await processNewDay([]);
+      } else {
+        setTasks([]);
+      }
+    }
+    setIsLoading(false);
+  };
+
+  const processNewDay = async (oldTasks) => {
+    // Get incomplete tasks from previous day
+    const incompleteTasks = oldTasks
+      .filter(task => !task.completed)
+      .map(task => ({ ...task, id: Date.now() + Math.random() }));
+
+    // Add default daily tasks
+    const defaultTasks = [
+      { id: Date.now() + Math.random() + 1, text: 'Exercise', completed: false },
+      { id: Date.now() + Math.random() + 2, text: 'Eat Clean', completed: false },
+      { id: Date.now() + Math.random() + 3, text: 'Read', completed: false }
+    ];
+
+    const newDayTasks = [...defaultTasks, ...incompleteTasks];
+    
+    setTasks(newDayTasks);
+    setLastProcessedDate(today);
+    
+    await window.storage.set(`tasks-${today}`, JSON.stringify(newDayTasks));
+    await window.storage.set('lastProcessedDate', today);
+  };
+
+  const saveTasks = async (updatedTasks) => {
+    try {
+      await window.storage.set(`tasks-${viewDate}`, JSON.stringify(updatedTasks));
+    } catch (error) {
+      console.error('Failed to save tasks:', error);
+    }
+  };
+
+  const addTask = async () => {
+    if (newTask.trim()) {
+      const task = {
+        id: Date.now(),
+        text: newTask.trim(),
+        completed: false
+      };
+      const updatedTasks = [...tasks, task];
+      setTasks(updatedTasks);
+      setNewTask('');
+      await saveTasks(updatedTasks);
+    }
+  };
+
+  const toggleTask = async (id) => {
+    const updatedTasks = tasks.map(task =>
+      task.id === id ? { ...task, completed: !task.completed } : task
+    );
+    setTasks(updatedTasks);
+    await saveTasks(updatedTasks);
+  };
+
+  const deleteTask = async (id) => {
+    const updatedTasks = tasks.filter(task => task.id !== id);
+    setTasks(updatedTasks);
+    await saveTasks(updatedTasks);
+  };
+
+  const navigateDate = (direction) => {
+    const currentDate = new Date(viewDate + 'T12:00:00');
+    currentDate.setDate(currentDate.getDate() + direction);
+    const newDate = currentDate.toISOString().split('T')[0];
+    
+    setViewDate(newDate);
+  };
+
+  const goToToday = () => {
+    setViewDate(today);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-xl text-gray-600">Loading...</div>
+      </div>
+    );
+  }
+
+  const completedCount = tasks.filter(t => t.completed).length;
+  const totalCount = tasks.length;
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="max-w-2xl mx-auto">
+        {/* Header with Date Navigation */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+          <div className="flex items-center justify-between mb-4 gap-2">
+            <button
+              onClick={() => navigateDate(-1)}
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors font-bold text-gray-700"
+            >
+              ← Previous
+            </button>
+            
+            <div className="text-center flex-1">
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-800 mb-1">
+                {isViewingToday ? 'Today' : viewDate > today ? 'Future Day' : 'Past Day'}
+              </h1>
+              <p className="text-sm md:text-base text-gray-600">{getFormattedDate(viewDate)}</p>
+            </div>
+            
+            <button
+              onClick={() => navigateDate(1)}
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors font-bold text-gray-700"
+            >
+              Next →
+            </button>
+          </div>
+
+          {!isViewingToday && (
+            <button
+              onClick={goToToday}
+              className="w-full mb-4 bg-indigo-500 text-white py-3 px-4 rounded-lg hover:bg-indigo-600 transition-colors font-semibold"
+            >
+              📅 Go to Today
+            </button>
+          )}
+
+          <div className="flex items-center gap-3">
+            <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div 
+                className="bg-gradient-to-r from-blue-500 to-indigo-600 h-full transition-all duration-500"
+                style={{ width: `${totalCount ? (completedCount / totalCount) * 100 : 0}%` }}
+              />
+            </div>
+            <span className="text-sm font-semibold text-gray-700">
+              {completedCount}/{totalCount}
+            </span>
+          </div>
+        </div>
+
+        {/* Add Task - Show for today and future dates */}
+        {(isViewingToday || viewDate > today) && (
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newTask}
+                onChange={(e) => setNewTask(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && addTask()}
+                placeholder="Add a new task..."
+                className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:outline-none transition-colors"
+              />
+              <button
+                onClick={addTask}
+                className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-3 rounded-xl hover:from-blue-600 hover:to-indigo-700 transition-all shadow-md hover:shadow-lg"
+              >
+                <Plus size={24} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Tasks List */}
+        <div className="space-y-3">
+          {tasks.length === 0 ? (
+            <div className="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-500">
+              {isViewingToday ? 'No tasks for today. Add one above!' : 'No tasks recorded for this day.'}
+            </div>
+          ) : (
+            tasks.map(task => (
+              <div
+                key={task.id}
+                className={`bg-white rounded-xl shadow-md p-4 flex items-center gap-3 transition-all ${
+                  isViewingToday ? 'hover:shadow-lg' : ''
+                } ${task.completed ? 'opacity-60' : ''}`}
+              >
+                <button
+                  onClick={() => toggleTask(task.id)}
+                  className={`flex-shrink-0 w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all cursor-pointer ${
+                    task.completed
+                      ? 'bg-gradient-to-r from-green-500 to-emerald-600 border-green-500'
+                      : 'border-gray-300 hover:border-indigo-500'
+                  }`}
+                >
+                  {task.completed && <Check size={18} className="text-white" />}
+                </button>
+                
+                <span className={`flex-1 text-gray-800 ${task.completed ? 'line-through' : ''}`}>
+                  {task.text}
+                </span>
+                
+                <button
+                  onClick={() => deleteTask(task.id)}
+                  className="flex-shrink-0 text-gray-400 hover:text-red-500 transition-colors p-1"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Info Note */}
+        <div className="mt-6 bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-xl">
+          <p className="text-sm text-blue-800">
+            <strong>Note:</strong> Incomplete tasks from today automatically roll over to the next day. 
+            Exercise, Eat Clean, and Read are added automatically each day. You can plan future days in advance!
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
